@@ -1,56 +1,125 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:notes/models/note.dart';
+import 'package:notes/services/note_service.dart';
 
-class NoteService {
-  static final FirebaseFirestore _database = FirebaseFirestore.instance;
-  static final CollectionReference _notesCollection =
-      _database.collection('notes');
+class NoteDialog extends StatefulWidget {
+  final Note? note;
 
-  static Future<void> addNote(Note note) async {
-    Map<String, dynamic> newNote = {
-      'title': note.title,
-      'description': note.description,
-      'created_at': FieldValue.serverTimestamp(),
-      'updated_at': FieldValue.serverTimestamp(),
-    };
-    await _notesCollection.add(newNote);
+  NoteDialog({super.key, this.note});
+
+  @override
+  State<NoteDialog> createState() => _NoteDialogState();
+}
+
+class _NoteDialogState extends State<NoteDialog> {
+  final TextEditingController _titleController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController();
+  XFile? _imageFile;
+
+  @override
+  void initState() {
+    // TODO: implement initState
+    super.initState();
+    if (widget.note != null) {
+      _titleController.text = widget.note!.title;
+      _descriptionController.text = widget.note!.description;
+    }
   }
 
-  static Future<void> updateNote(Note note) async {
-    Map<String, dynamic> updatedNote = {
-      'title': note.title,
-      'description': note.description,
-      'created_at': note.createdAt,
-      'updated_at': FieldValue.serverTimestamp(),
-    };
-
-    await _notesCollection.doc(note.id).update(updatedNote);
+  Future<void> _pickImage() async {
+    final pickedFile =
+        await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _imageFile = pickedFile;
+      });
+    }
   }
 
-  static Future<void> deleteNote(Note note) async {
-    await _notesCollection.doc(note.id).delete();
-  }
-
-  static Future<QuerySnapshot> retrieveNotes() {
-    return _notesCollection.get();
-  }
-
-  static Stream<List<Note>> getNoteList() {
-    return _notesCollection.snapshots().map((snapshot) {
-      return snapshot.docs.map((doc) {
-        Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
-        return Note(
-          id: doc.id,
-          title: data['title'],
-          description: data['description'],
-          createdAt: data['created_at'] != null
-              ? data['created_at'] as Timestamp
-              : null,
-          updatedAt: data['updated_at'] != null
-              ? data['updated_at'] as Timestamp
-              : null,
-        );
-      }).toList();
-    });
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.note == null ? 'Add Notes' : 'Update Notes'),
+      content: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Title: ',
+            textAlign: TextAlign.start,
+          ),
+          TextField(
+            controller: _titleController,
+          ),
+          const Padding(
+            padding: EdgeInsets.only(top: 20),
+            child: Text(
+              'Description: ',
+            ),
+          ),
+          TextField(
+            controller: _descriptionController,
+          ),
+          const Padding(
+            padding: EdgeInsets.only(
+              top: 20,
+            ),
+            child: Text('Image: '),
+          ),
+          Expanded(
+            child: _imageFile != null
+                ? Image.network(_imageFile!.path, fit: BoxFit.cover)
+                : (widget.note?.imageUrl != null &&
+                        Uri.parse(widget.note!.imageUrl!).isAbsolute
+                    ? Image.network(
+                        widget.note!.imageUrl!,
+                        fit: BoxFit.cover,
+                      )
+                    : Container()),
+          ),
+          TextButton(
+            onPressed: _pickImage,
+            child: const Text('Pick Image'),
+          )
+        ],
+      ),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+            },
+            child: const Text('Cancel'),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            String? imageUrl;
+            if (_imageFile != null) {
+              imageUrl = await NoteService.uploadImage(_imageFile!);
+            } else {
+              imageUrl = widget.note?.imageUrl;
+            }
+            Note note = Note(
+              id: widget.note?.id,
+              title: _titleController.text,
+              description: _descriptionController.text,
+              imageUrl: imageUrl,
+              createdAt: widget.note?.createdAt,
+            );
+            if (widget.note == null) {
+              NoteService.addNote(note).whenComplete(() {
+                Navigator.of(context).pop();
+              });
+            } else {
+              NoteService.updateNote(note)
+                  .whenComplete(() => Navigator.of(context).pop());
+            }
+          },
+          child: Text(widget.note == null ? 'Add' : 'Update'),
+        ),
+      ],
+    );
   }
 }
